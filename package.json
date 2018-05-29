@@ -1,0 +1,36 @@
+{
+  "name": "json-typescript-validator",
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "typings": "dist/index.d.ts",
+  "author": "Thijs Suijten <thijs@q42.nl> (http://q42.com/)",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "json",
+    "schema",
+    "typescript",
+    "decode",
+    "api"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Q42/json-typescript-decoder.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Q42/json-typescript-decoder/issues"
+  },
+  "homepage": "https://github.com/Q42/json-typescript-decoder",
+  "dependencies": {
+    "@types/prettier": "^1.7.2",
+    "ajv": "^6.5.0",
+    "ajv-pack": "^0.3.1",
+    "json-schema-to-typescript": "^5.5.0",
+    "lodash": "^4.17.10",
+    "prettier": "^1.8.2",
+    "tslint": "^5.9.1"
+  }
+}
