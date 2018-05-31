@@ -19,7 +19,7 @@ export interface Options {
 export async function generateFromFile(
   inputFile: string,
   outputFolder: string,
-  userOptions?: Options,
+  options?: Options,
 ) {
   if (!existsSync(inputFile)) {
     throw new Error(`Input schema file ${inputFile} not found`);
@@ -27,7 +27,7 @@ export async function generateFromFile(
 
   const schema = require(resolve(inputFile));
 
-  return generate(schema, outputFolder, userOptions);
+  return generate(schema, outputFolder, options);
 }
 
 function writeFilePromise(file: string, data: string) {
@@ -129,8 +129,8 @@ function decode<T>(validator: (json: any) => boolean, dataPath: string): (json: 
   return (json: any) => {
     if (!validator(json)) {
       const errors: any[] = ((validator as any).errors as any) || [];
-      const errorMessage = errors.map(error => error.dataPath + ' ' + error.message).join(', ') || 'unknown';
-      throw new ${decoderName}Error('Error validating ' + dataPath + ': ' + errorMessage, json);
+      const errorMessage = errors.map(error => \`\${error.dataPath} \${error.message}\`.trim()).join(', ') || 'unknown';
+      throw new ${decoderName}Error(\`Error validating \${dataPath}: \${errorMessage}\`, json);
     }
   
     return json as T;

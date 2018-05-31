@@ -1,6 +1,6 @@
 {
   "name": "json-typescript-decoder",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "main": "dist/index.js",
   "typings": "dist/index.d.ts",
   "author": "Thijs Suijten <thijs@q42.nl> (http://q42.com/)",
