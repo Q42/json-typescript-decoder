@@ -1,5 +1,5 @@
 import { compile as jsonSchemaToTypescript} from 'json-schema-to-typescript';
-import { lstatSync, existsSync, writeFile, mkdirSync } from 'fs';
+import { lstatSync, existsSync, writeFile, mkdirSync, readFileSync } from 'fs';
 import { resolve, join, basename } from 'path';
 import { camelCase, upperFirst, size } from 'lodash'
 import * as Ajv from 'ajv';
@@ -14,6 +14,7 @@ export interface Options {
   style?: PrettierOptions;
   ajvOptions?: AjvOptions;
   decoderName?: string;
+  pack?: boolean;
 }
 
 export async function generateFromFile(
@@ -32,6 +33,19 @@ export async function generateFromFile(
 
 function writeFilePromise(file: string, data: string) {
   return new Promise(function (resolve, reject) {
+    const buffer = new Buffer(data, 'UTF-8');
+    if (existsSync(file)) {
+      // Compare the contents of the file before writing
+      // We only write the file when the contents has changed to prevent compile events
+      // when running the typescript compiler in watch mode
+      var existingFile = readFileSync(file);
+      if (existingFile.equals(buffer)) {
+        // The contents is the same, do not write the file and resolve the promise
+        resolve(data);
+        return;
+      }
+    }
+    
     writeFile(file, data, function (err) {
       if (err) reject(err);
       else resolve(data);
@@ -46,6 +60,7 @@ export async function generate(
 ) {
   schema = { definitions: schema.definitions };
   options = options || {};
+  options.pack = options.pack === undefined ? true : options.pack;
 
   if (!existsSync(outputFolder)) {
     mkdirSync(outputFolder);
@@ -80,14 +95,18 @@ export async function generate(
 
     const validate = ajv.getSchema(`schema#/definitions/${definitionKey}`);
 
-    const validatorFileName = `${name}${validatorFilePostfix}`;
-    imports.push(`import * as ${name}$validate from './${validatorFileName}'`);
-    decoders.push(decoder(name));
-
-    var moduleCode = pack(ajv, validate);
 
     // Write code of definition to single file
-    writeFiles.push(writeFilePromise(join(outputFolder, validatorFileName), moduleCode));
+    if (options.pack) {
+      const validatorFileName = `${name}${validatorFilePostfix}`;
+      imports.push(`import * as ${name}$validate from './${validatorFileName}'`);
+      decoders.push(decoderPack(name));
+
+      var moduleCode = pack(ajv, validate);
+      writeFiles.push(writeFilePromise(join(outputFolder, validatorFileName), moduleCode));
+    } else {
+      decoders.push(decoderNoPack(name));
+    }
   }
 
   await Promise.all(writeFiles);
@@ -101,7 +120,12 @@ export async function generate(
   const decoderName = options.decoderName || toSafeString(basename(outputFolder)) + 'Decoder';
 
   // Generate the code including the fromJson methods
-  const code = template(cleanModel, imports.join('\n'), decoders.join('\n'), decoderName);
+  let code: string;
+  if (options.pack === true) {
+    code = templatePack(cleanModel, imports.join('\n'), decoders.join('\n'), decoderName);
+  } else {
+    code = templateNoPack(cleanModel, decoders.join('\n'), decoderName, schema, options.ajvOptions);
+  }
 
   // Prettify the generated code
   const prettyCode = prettify(code, { parser: 'typescript', ...options.style })
@@ -114,11 +138,53 @@ function toSafeString(string: string) {
   return upperFirst(camelCase(string))
 }
 
-function decoder(name: string) {
+function decoderPack(name: string) {
   return `static ${name} = decode<${name}>(${name}$validate, '${name}');`;
 }
 
-function template(models: string, imports: string, decoders: string, decoderName: string) {
+function decoderNoPack(name: string) {
+  return `static ${name} = decode<${name}>('${name}');`;
+}
+
+function templateNoPack(models: string, decoders: string, decoderName: string, schema: JSONSchema4, ajvOptions?: AjvOptions) {
+  return `
+/* tslint:disable */
+import * as Ajv from 'ajv';
+
+${models}
+
+let ajv: Ajv.Ajv;
+
+function lazyAjv() {
+  if (!ajv) {
+    ajv = new Ajv(${JSON.stringify(ajvOptions || {})});
+    ajv.addSchema(schema, 'schema');
+  }
+
+  return ajv;
+}
+
+const schema = ${JSON.stringify(schema)};
+function decode<T>(dataPath: string): (json: any) => T {
+  let validator: Ajv.ValidateFunction;
+  return (json: any) => {
+    if (!validator) {
+      validator = lazyAjv().getSchema(\`schema#/definitions/\${dataPath}\`);
+    }
+
+    if (!validator(json)) {
+      const errors = validator.errors || [];
+      const errorMessage = errors.map(error => \`\${error.dataPath} \${error.message}\`.trim()).join(', ') || 'unknown';
+      throw new ${decoderName}Error(\`Error validating \${dataPath}: \${errorMessage}\`, json);
+    }
+  
+    return json as T;
+  }
+}
+${decoder(decoders, decoderName)}`;
+}
+
+function templatePack(models: string, imports: string, decoders: string, decoderName: string) {
   return `
 /* tslint:disable */
 ${imports}
@@ -137,6 +203,11 @@ function decode<T>(validator: (json: any) => boolean, dataPath: string): (json: 
   }
 }
 
+${decoder(decoders, decoderName)}`;
+}
+
+function decoder(decoders: string, decoderName: string) {
+  return `
 export class ${decoderName}Error extends Error {
   readonly json: any;
 
